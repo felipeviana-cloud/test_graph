@@ -32,16 +32,16 @@ looker.plugins.visualizations.add({
       </div>
     `;
 
-    // Carrega a biblioteca Plotly v2.x via CDN
+    // Tenta carregar o Plotly
+    // Nota: Se o Looker já tiver carregado uma versão antiga (v1.58), isso pode ser ignorado, 
+    // mas o gráfico deve funcionar mesmo assim.
     if (typeof Plotly === "undefined") {
       var script = document.createElement("script");
-      // Usando uma versão fixa e recente para evitar avisos
       script.src = "https://cdn.plot.ly/plotly-2.27.1.min.js";
       script.async = true;
       script.onload = () => {
-          // Limpa a mensagem de carregamento quando o script termina
-          var container = document.getElementById('plotly-chart-container');
-          if(container) container.innerHTML = "";
+          // O updateAsync vai lidar com a renderização
+          console.log("Plotly carregado via Script Customizado");
       };
       document.head.appendChild(script);
     }
@@ -56,8 +56,9 @@ looker.plugins.visualizations.add({
       return;
     }
 
+    // --- CORREÇÃO DO ERRO CRÍTICO ---
     this.clearErrors();
-    this.clearWarnings();
+    // this.clearWarnings(); // REMOVIDO: Causava travamento no script
 
     var xData = [], yData = [], zData = [];
     var labelX = "", labelY = "", labelZ = "";
@@ -67,14 +68,14 @@ looker.plugins.visualizations.add({
 
     var all_fields = queryResponse.fields.dimensions.concat(queryResponse.fields.measures);
 
-    // VERIFICAÇÃO: Se temos menos de 3 campos, ativamos o MODO DEMO
+    // Se temos menos de 3 campos, ativamos o MODO DEMO
     if (all_fields.length < 3 || data.length === 0) {
         
         isDemoMode = true;
-        this.addWarning({
-            title: "Modo Demonstração", 
-            message: "Nenhum dado selecionado. Exibindo gráfico de exemplo. Selecione 3 campos para ver seus dados."
-        });
+        // Usamos addError como aviso visual, já que addWarning pode não existir
+        if (typeof this.addWarning === "function") {
+             this.addWarning({title: "Modo Demo", message: "Mostrando dados de exemplo."});
+        }
 
         labelX = "Eixo X (Exemplo)";
         labelY = "Eixo Y (Exemplo)";
@@ -83,13 +84,13 @@ looker.plugins.visualizations.add({
         // Gerando dados falsos (uma espiral 3D)
         for (var i = 0; i < 200; i++) {
             var t = i / 20;
-            xData.push(t * Math.cos(t)); // X = t*cos(t)
-            yData.push(t * Math.sin(t)); // Y = t*sin(t)
-            zData.push(t);                // Z = t
+            xData.push(t * Math.cos(t)); 
+            yData.push(t * Math.sin(t)); 
+            zData.push(t);                
         }
 
     } else {
-        // MODO DADOS REAIS (Se o usuário selecionou campos)
+        // MODO DADOS REAIS
         labelX = all_fields[0].label_short || all_fields[0].label;
         labelY = all_fields[1].label_short || all_fields[1].label;
         labelZ = all_fields[2].label_short || all_fields[2].label;
@@ -98,17 +99,15 @@ looker.plugins.visualizations.add({
         var fieldZ = all_fields[2].name;
 
         data.forEach(function(row) {
-          // Usa 0 se o valor for nulo para não quebrar o gráfico
           xData.push(row[fieldX].value !== null ? row[fieldX].value : 0);
           yData.push(row[fieldY].value !== null ? row[fieldY].value : 0);
           zData.push(row[fieldZ].value !== null ? row[fieldZ].value : 0);
         });
     }
 
-    // --- PLOTAGEM (Comum para ambos os modos) ---
+    // --- PLOTAGEM ---
 
-    // Se for modo demo, usa uma cor diferente
-    var markerColor = isDemoMode ? (zData.map(z => z)) : '#1f77b4'; // Gradiente no demo, azul sólido no real
+    var markerColor = isDemoMode ? zData : '#1f77b4'; 
     var colorscale = isDemoMode ? 'Viridis' : null;
 
     var trace = {
@@ -137,25 +136,22 @@ looker.plugins.visualizations.add({
         xaxis: { title: labelX },
         yaxis: { title: labelY },
         zaxis: { title: labelZ },
-        camera: { eye: {x: 1.5, y: 1.5, z: 1.5} } // Ajusta a câmera inicial
       },
       autosize: true,
-      paper_bgcolor: 'rgba(0,0,0,0)', // Fundo transparente para integrar melhor ao Looker
+      paper_bgcolor: 'rgba(0,0,0,0)',
       plot_bgcolor: 'rgba(0,0,0,0)'
     };
     
-    // Configuração para a barra de ferramentas do Plotly
     var configPlotly = { 
         responsive: true, 
         displayModeBar: true,
-        displaylogo: false, // Remove o logo do Plotly da barra
-        modeBarButtonsToRemove: ['toImage', 'sendDataToCloud']
+        displaylogo: false
     };
 
-    // Renderiza o gráfico no elemento principal
     var chartContainer = document.getElementById('plotly-chart-container');
-    // Garante que o container existe antes de plotar
     if (chartContainer) {
+        // Isso remove o texto "Carregando..."
+        chartContainer.innerHTML = ""; 
         Plotly.newPlot(chartContainer, [trace], layout, configPlotly);
     }
     
