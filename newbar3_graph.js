@@ -1,50 +1,121 @@
-// 2. Renderização
+looker.plugins.visualizations.add({
+  id: "chartjs_box_annotation_v2",
+  label: "Chart.js Bar + Box Annotation",
+  options: {
+    // --- OPÇÕES PARA O USUÁRIO CONTROLAR A ANOTAÇÃO ---
+    annotation_box_start: {
+      type: "string",
+      label: "Box Start (Categoria/Index)",
+      default: "2.5",
+      section: "Annotations",
+      order: 1
+    },
+    annotation_box_end: {
+      type: "string",
+      label: "Box End (Categoria/Index)",
+      default: "3.5",
+      section: "Annotations",
+      order: 2
+    },
+    annotation_line_x: {
+      type: "string",
+      label: "Vertical Line X (Categoria/Index)",
+      default: "0.5",
+      section: "Annotations",
+      order: 3
+    },
+    show_demo: {
+      type: "boolean",
+      label: "Forçar Demo Mode",
+      default: false,
+      section: "Dev"
+    }
+  },
+
+  // 1. Setup e Carregamento das Bibliotecas
+  create: function(element, config) {
+    element.innerHTML = `
+      <style>
+        .chart-container { position: relative; height: 100%; width: 100%; }
+      </style>
+      <div class="chart-container">
+          <canvas id="myChart"></canvas>
+      </div>
+    `;
+
+    const loadScript = (src) => {
+      return new Promise((resolve, reject) => {
+        if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = resolve;
+        script.onerror = reject;
+        document.head.appendChild(script);
+      });
+    };
+
+    // Carrega Chart.js e o Plugin de Anotação
+    loadScript('https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js')
+      .then(() => loadScript('https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js'))
+      .then(() => { console.log("Chart.js e Plugins Carregados"); })
+      .catch(err => console.error("Erro ao carregar libs", err));
+  },
+
+  // 2. Renderização e Lógica Principal
   updateAsync: function(data, element, config, queryResponse, details, done) {
     
+    // Verifica se as bibliotecas já carregaram. Se não, tenta novamente em 200ms.
     if (typeof Chart === "undefined" || typeof window['chartjs-plugin-annotation'] === "undefined") {
       setTimeout(() => { this.updateAsync(data, element, config, queryResponse, details, done) }, 200);
       return;
     }
 
+    // Limpa erros anteriores e destroi gráfico antigo para redesenhar
     this.clearErrors();
     if (this.chartInstance) { this.chartInstance.destroy(); }
 
     var ctx = document.getElementById('myChart').getContext('2d');
     
-    // --- LOGICA: DEMO vs DADOS REAIS ---
-    
+    // Variáveis de preparação
     var labels = [];
     var datasets = [];
+    var annotationsConfig = {};
     
-    // Verifica se tem dados suficientes
+    // Metadados dos campos selecionados no Looker
     var all_dims = queryResponse.fields.dimensions;
     var all_measures = queryResponse.fields.measures;
 
-    // CORREÇÃO AQUI: 
-    // Alterado para verificar se NÃO há dimensões (all_dims.length === 0).
-    // Se não tiver dimensão, não conseguimos gerar o eixo X, então forçamos o modo Demo ou return.
+    // --- DECISÃO: MODO DEMO vs MODO REAL ---
+    // A correção principal está aqui: "all_dims.length === 0" previne o erro de 'name' undefined
     if (data.length === 0 || all_dims.length === 0 || config.show_demo) {
         
-        // --- DADOS IDÊNTICOS À SUA IMAGEM (DEMO) ---
+        // >> MODO DEMO / FALLBACK <<
+        
+        // Avisa o usuário se estiver faltando dimensão (mas não se for apenas o modo Demo forçado)
+        if (!config.show_demo && all_dims.length === 0 && all_measures.length > 0) {
+            this.addWarning({title: "Dados Incompletos", message: "Selecione pelo menos 1 Dimensão (Dimension) para o Eixo X."});
+        }
+
+        // Dados estáticos para visualização
         labels = ['Label 0', 'Label 1', 'Label 2', 'Label 3', 'Label 4', 'Label 5', 'Label 6', 'Label 7'];
         
         datasets = [
             {
-                label: 'Dataset 1',
+                label: 'Dataset 1 (Demo)',
                 data: [58, 92, 45, 65, 45, 88, 31, 28],
                 backgroundColor: 'rgba(54, 162, 235, 0.5)', 
                 borderColor: 'rgb(54, 162, 235)',
                 borderWidth: 1
             },
             {
-                label: 'Dataset 2',
+                label: 'Dataset 2 (Demo)',
                 data: [20, 76, 70, 52, 51, 20, 32, 75],
                 backgroundColor: 'rgba(255, 99, 132, 0.5)', 
                 borderColor: 'rgb(255, 99, 132)',
                 borderWidth: 1
             },
             {
-                label: 'Dataset 3',
+                label: 'Dataset 3 (Demo)',
                 data: [90, 82, 87, 40, 51, 29, 78, 59],
                 backgroundColor: 'rgba(255, 205, 86, 0.5)', 
                 borderColor: 'rgb(255, 205, 86)',
@@ -52,7 +123,8 @@
             }
         ];
 
-        var annotationsDemo = {
+        // Anotações estáticas do Demo
+        annotationsConfig = {
             line1: {
                 type: 'line',
                 xMin: 0.5,
@@ -74,53 +146,46 @@
                 xMin: 2.5,
                 xMax: 3.5,
                 yMin: 0,
-                yMax: 100,
+                yMax: 100, // Ajuste conforme necessário ou use 'undefined' para infinito no chartjs novo
                 backgroundColor: 'rgba(255, 255, 0, 0.25)',
                 borderWidth: 0
             }
         };
-        
-        // Só mostra aviso se não for apenas o carregamento inicial vazio
-        if (data.length === 0 && all_dims.length > 0) {
-            // Caso de query vazia
-        } else if (all_dims.length === 0 && all_measures.length > 0) {
-             if (typeof this.addWarning === "function") {
-                 this.addWarning({title: "Dados Incompletos", message: "Selecione pelo menos 1 Dimensão."});
-             }
-        }
 
     } else {
-        // --- MODO REAL (SEUS DADOS DO LOOKER) ---
+        // >> MODO REAL (DADOS DO LOOKER) <<
         
         // 1. Popula Labels (Eixo X)
-        // AGORA SEGURO: Sabemos que all_dims[0] existe por causa do if acima
+        // Agora é seguro acessar [0] pois validamos all_dims.length > 0
         var dimName = all_dims[0].name; 
         
         data.forEach(row => {
-            // Verifica se o valor existe para evitar erros de null
             let val = row[dimName].value;
-            labels.push(val ? val : "Null"); 
+            // Previne erro se o valor vier nulo do banco
+            labels.push(val !== null && val !== undefined ? val : "Null"); 
         });
 
         // 2. Cria um Dataset para CADA Medida selecionada
         var colors = ['rgba(54, 162, 235, 0.6)', 'rgba(255, 99, 132, 0.6)', 'rgba(255, 205, 86, 0.6)', 'rgba(75, 192, 192, 0.6)'];
+        var borderColors = ['rgb(54, 162, 235)', 'rgb(255, 99, 132)', 'rgb(255, 205, 86)', 'rgb(75, 192, 192)'];
         
         all_measures.forEach((measure, index) => {
             var dsData = data.map(row => row[measure.name].value);
             datasets.push({
                 label: measure.label_short || measure.label,
                 data: dsData,
-                backgroundColor: colors[index % colors.length],
+                backgroundColor: colors[index % colors.length], // Cicla cores se houver muitas medidas
+                borderColor: borderColors[index % borderColors.length],
                 borderWidth: 1
             });
         });
 
-        // Configura anotações
+        // 3. Configura anotações baseadas no Menu do Usuário (Options)
         var boxStart = isNaN(config.annotation_box_start) ? config.annotation_box_start : parseFloat(config.annotation_box_start);
         var boxEnd = isNaN(config.annotation_box_end) ? config.annotation_box_end : parseFloat(config.annotation_box_end);
         var lineX = isNaN(config.annotation_line_x) ? config.annotation_line_x : parseFloat(config.annotation_line_x);
 
-        var annotationsDemo = {
+        annotationsConfig = {
             userBox: {
                 type: 'box',
                 xMin: boxStart,
@@ -144,7 +209,7 @@
         };
     }
 
-    // --- RENDERIZAÇÃO FINAL ---
+    // --- RENDERIZAÇÃO FINAL DO CHART.JS ---
 
     var chartConfig = {
       type: 'bar',
@@ -158,7 +223,7 @@
         plugins: {
           legend: { display: true },
           annotation: {
-            annotations: annotationsDemo
+            annotations: annotationsConfig
           }
         },
         scales: {
@@ -167,6 +232,10 @@
       }
     };
 
+    // Cria a instância do gráfico
     this.chartInstance = new Chart(ctx, chartConfig);
+    
+    // Sinaliza pro Looker que terminamos
     done();
   }
+});
