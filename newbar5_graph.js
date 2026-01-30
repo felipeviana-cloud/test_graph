@@ -63,12 +63,13 @@ looker.plugins.visualizations.add({
   // 2. Renderização
   updateAsync: function(data, element, config, queryResponse, details, done) {
     
+    // Aguarda carregamento das libs
     if (typeof Chart === "undefined" || typeof window['chartjs-plugin-annotation'] === "undefined") {
       setTimeout(() => { this.updateAsync(data, element, config, queryResponse, details, done) }, 200);
       return;
     }
 
-    this.clearErrors(); // Limpa erros antigos antes de começar
+    this.clearErrors(); // Limpa erros antigos
     if (this.chartInstance) { this.chartInstance.destroy(); }
 
     var ctx = document.getElementById('myChart').getContext('2d');
@@ -80,22 +81,21 @@ looker.plugins.visualizations.add({
     var all_dims = queryResponse.fields.dimensions;
     var all_measures = queryResponse.fields.measures;
 
-    // --- LÓGICA DE DADOS ---
+    // --- VERIFICAÇÃO DE DADOS ---
     
-    // Se não houver dimensões, não podemos desenhar o gráfico real corretamente.
+    // Se faltar dimensão, ou dados, ou se o usuário pedir Demo
     if (data.length === 0 || all_dims.length === 0 || config.show_demo) {
         
-        // Se for falta de dimensão (e não apenas modo Demo forçado), avisa o usuário usando addError
+        // [CORREÇÃO] Se não for demo forçado e faltar dimensão, usa addError e PARA a execução.
         if (!config.show_demo && all_dims.length === 0 && all_measures.length > 0) {
             this.addError({
                 title: "Dados Incompletos", 
-                message: "Este gráfico precisa de 1 Dimensão (Eixo X) e pelo menos 1 Medida (Eixo Y)."
+                message: "Selecione pelo menos 1 Dimensão (eixo X)."
             });
-            done(); // Encerra a execução aqui para não desenhar gráfico quebrado
-            return;
+            return; // Interrompe aqui para não desenhar gráfico vazio
         }
 
-        // --- MODO DEMO ---
+        // --- MODO DEMO (DADOS FAKES) ---
         labels = ['Label 0', 'Label 1', 'Label 2', 'Label 3', 'Label 4', 'Label 5', 'Label 6', 'Label 7'];
         
         datasets = [
@@ -153,7 +153,7 @@ looker.plugins.visualizations.add({
     } else {
         // --- MODO REAL ---
         
-        // Seguro acessar [0] pois já validamos all_dims.length > 0
+        // Garante que existe dimensão antes de acessar .name
         var dimName = all_dims[0].name; 
         
         data.forEach(row => {
@@ -175,7 +175,6 @@ looker.plugins.visualizations.add({
             });
         });
 
-        // Configurações do usuário
         var boxStart = isNaN(config.annotation_box_start) ? config.annotation_box_start : parseFloat(config.annotation_box_start);
         var boxEnd = isNaN(config.annotation_box_end) ? config.annotation_box_end : parseFloat(config.annotation_box_end);
         var lineX = isNaN(config.annotation_line_x) ? config.annotation_line_x : parseFloat(config.annotation_line_x);
